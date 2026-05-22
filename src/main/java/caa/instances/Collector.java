@@ -35,6 +35,17 @@ import org.jsoup.select.Elements;
 
 public class Collector implements ScanCheck {
 
+    private static class CollectResult {
+
+        private final String host;
+        private final Map<String, Object> data;
+
+        private CollectResult(String host, Map<String, Object> data) {
+            this.host = host;
+            this.data = data;
+        }
+    }
+
     private final MontoyaApi api;
     private final Database db;
     private final ConfigLoader configLoader;
@@ -110,91 +121,47 @@ public class Collector implements ScanCheck {
 
     @Override
     public AuditResult passiveAudit(HttpRequestResponse baseRequestResponse) {
-        // 使用局部变量确保线程安全
-        Set<String> pathList = new HashSet<>();
-        Set<String> fullPathList = new HashSet<>();
-        Set<String> fileList = new HashSet<>();
-        Set<String> paramList = new HashSet<>();
-        SetMultimap<String, String> valueList = LinkedHashMultimap.create();
-
-        HttpRequest request = baseRequestResponse.request();
-        HttpResponse response = baseRequestResponse.response();
-
-        if (request != null) {
-            String path = "";
-            String host = "";
-            try {
-                URL u = new URL(request.url());
-                path = u.getPath().replaceAll("/+", "/");
-                host = u.getHost();
-            } catch (Exception e) {
-                api
-                    .logging()
-                    .logToError("Failed to parse URL: " + e.getMessage());
-            }
-
-            boolean matches = httpUtils.verifyHttpRequestResponse(
-                baseRequestResponse,
-                "Proxy"
-            );
-            if (!matches) {
-                // 处理请求路径
-                processPath(path, pathList, fileList, fullPathList);
-
-                // 处理请求参数
-                processParameters(request.parameters(), paramList, valueList);
-
-                // 处理响应
-                if (response != null) {
-                    processResponseBody(response.body(), paramList, valueList);
-
-                    // 存储结果到数据库
-                    Map<String, Object> collectMap = new HashMap<>();
-                    if (!pathList.isEmpty()) {
-                        collectMap.put("Path", pathList);
-                        collectMap.put("All Path", pathList);
-                    }
-                    if (!fullPathList.isEmpty()) {
-                        collectMap.put("FullPath", fullPathList);
-                        collectMap.put("All FullPath", fullPathList);
-                    }
-                    if (!fileList.isEmpty()) {
-                        collectMap.put("File", fileList);
-                        collectMap.put("All File", fileList);
-                    }
-                    if (!paramList.isEmpty()) {
-                        collectMap.put("Param", paramList);
-                        collectMap.put("All Param", paramList);
-                    }
-                    if (!valueList.isEmpty()) {
-                        collectMap.put("Value", valueList);
-                    }
-
-                    if (!collectMap.isEmpty()) {
-                        String finalHost = host.toLowerCase();
-                        CompletableFuture.supplyAsync(() -> {
-                            db.insertData(finalHost, collectMap);
-                            return null;
-                        }).exceptionally(ex -> {
-                            api
-                                .logging()
-                                .logToError(
-                                    "Failed to insert data asynchronously: " +
-                                        ex.getMessage()
-                                );
-                            return null;
-                        });
-                    }
-                }
-            }
-        }
-
-        // 处理只有响应的情况
-        if (request == null && response != null) {
-            processResponseOnly(response, valueList, paramList);
-        }
-
+        collectAndStore(baseRequestResponse, "Proxy", true);
         return auditResult(emptyList());
+    }
+
+    public boolean rescanFromContextMenu(HttpRequestResponse baseRequestResponse) {
+        return collectAndStore(baseRequestResponse, "Proxy", false);
+    }
+
+    private boolean collectAndStore(
+        HttpRequestResponse baseRequestResponse,
+        String toolType,
+        boolean verifyToolScope
+    ) {
+        CollectResult collectResult = collectData(
+            baseRequestResponse,
+            toolType,
+            true,
+            true,
+            true,
+            true,
+            verifyToolScope
+        );
+
+        if (collectResult.host.isBlank() || collectResult.data.isEmpty()) {
+            return false;
+        }
+
+        CompletableFuture.supplyAsync(() -> {
+            db.insertData(collectResult.host, collectResult.data);
+            return null;
+        }).exceptionally(ex -> {
+            api
+                .logging()
+                .logToError(
+                    "Failed to insert data asynchronously: " +
+                    ex.getMessage()
+                );
+            return null;
+        });
+
+        return true;
     }
 
     private void processJsonData(
@@ -371,66 +338,122 @@ public class Collector implements ScanCheck {
     public Map<String, Object> collect(
         HttpRequestResponse baseRequestResponse
     ) {
+        return collectData(
+            baseRequestResponse,
+            "Proxy",
+            true,
+            false,
+            false,
+            false,
+            true
+        ).data;
+    }
+
+    public Map<String, Object> collectForDataboard(
+        HttpRequestResponse baseRequestResponse
+    ) {
+        return collectData(
+            baseRequestResponse,
+            "Proxy",
+            false,
+            true,
+            true,
+            false,
+            false
+        ).data;
+    }
+
+    private CollectResult collectData(
+        HttpRequestResponse baseRequestResponse,
+        String toolType,
+        boolean applyScopeFilter,
+        boolean includeExtendedPathData,
+        boolean includeHtmlInputs,
+        boolean includeAllTables,
+        boolean verifyToolScope
+    ) {
         Map<String, Object> resultMap = new HashMap<>();
         Set<String> pathList = new HashSet<>();
+        Set<String> fullPathList = new HashSet<>();
+        Set<String> fileList = new HashSet<>();
         Set<String> paramList = new HashSet<>();
         SetMultimap<String, String> valueList = LinkedHashMultimap.create();
 
         HttpRequest request = baseRequestResponse.request();
         HttpResponse response = baseRequestResponse.response();
+        String host = "";
 
         if (request != null) {
             String path = "";
             try {
                 URL u = new URL(request.url());
                 path = u.getPath().replaceAll("/+", "/");
+                host = u.getHost().toLowerCase();
             } catch (Exception e) {
                 api
                     .logging()
-                    .logToError(
-                        "Failed to parse URL in collect: " + e.getMessage()
-                    );
+                    .logToError("Failed to parse URL: " + e.getMessage());
             }
 
-            boolean matches = httpUtils.verifyHttpRequestResponse(
+            boolean matches = applyScopeFilter &&
+            httpUtils.verifyHttpRequestResponse(
                 baseRequestResponse,
-                "Proxy"
+                toolType,
+                verifyToolScope
             );
             if (!matches) {
-                // 处理路径（不收集文件和全路径）
-                processPath(path, pathList, null, null);
-
-                // 处理请求参数
+                processPath(
+                    path,
+                    pathList,
+                    includeExtendedPathData ? fileList : null,
+                    includeExtendedPathData ? fullPathList : null
+                );
                 processParameters(request.parameters(), paramList, valueList);
 
-                // 处理响应数据（只解析JSON，不解析HTML）
                 if (response != null) {
-                    processResponseBodyJson(
-                        response.body(),
-                        paramList,
-                        valueList
-                    );
+                    if (includeHtmlInputs) {
+                        processResponseBody(response.body(), paramList, valueList);
+                    } else {
+                        processResponseBodyJson(
+                            response.body(),
+                            paramList,
+                            valueList
+                        );
+                    }
                 }
             }
         }
 
-        // 处理只有响应的情况
         if (request == null && response != null) {
             processResponseOnly(response, valueList, paramList);
         }
 
-        // 返回结果
-        if (!paramList.isEmpty()) {
-            resultMap.put("Param", paramList);
+        addCollectedData(resultMap, pathList, "Path", includeAllTables);
+        if (includeExtendedPathData) {
+            addCollectedData(resultMap, fullPathList, "FullPath", includeAllTables);
+            addCollectedData(resultMap, fileList, "File", includeAllTables);
         }
+        addCollectedData(resultMap, paramList, "Param", includeAllTables);
         if (!valueList.isEmpty()) {
             resultMap.put("Value", valueList);
         }
-        if (!pathList.isEmpty()) {
-            resultMap.put("Path", pathList);
-        }
 
-        return resultMap;
+        return new CollectResult(host, resultMap);
+    }
+
+    private void addCollectedData(
+        Map<String, Object> resultMap,
+        Set<String> dataList,
+        String tableName,
+        boolean includeAllTables
+    ) {
+        if (dataList.isEmpty()) {
+            return;
+        }
+        resultMap.put(tableName, dataList);
+        if (includeAllTables) {
+            resultMap.put("All " + tableName, dataList);
+        }
     }
 
     @Override

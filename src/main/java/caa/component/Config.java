@@ -53,10 +53,13 @@ public class Config extends JPanel {
 
         String[] settingMode = new String[]{"Exclude suffix", "Block host", "Exclude status"};
         JPanel settingPanel = createConfigTablePanel(settingMode);
-        JPanel scopePanel = getScopePanel();
-        JScrollPane scopeScrollPane = new JScrollPane(scopePanel);
-        scopeScrollPane.setBorder(new TitledBorder("Scope"));
-        settingPanel.add(scopeScrollPane, BorderLayout.NORTH);
+
+        JPanel northPanel = new JPanel();
+        northPanel.setLayout(new BoxLayout(northPanel, BoxLayout.Y_AXIS));
+        northPanel.setBorder(new TitledBorder("General"));
+        northPanel.add(getScopePanel());
+
+        settingPanel.add(northPanel, BorderLayout.NORTH);
         configTabbedPanel.add("Setting", settingPanel);
 
         add(configInfoPanel, BorderLayout.NORTH);
@@ -64,8 +67,8 @@ public class Config extends JPanel {
     }
 
     private JPanel getScopePanel() {
-        JPanel scopePanel = new JPanel();
-        scopePanel.setLayout(new BoxLayout(scopePanel, BoxLayout.X_AXIS));
+        JPanel scopePanel = new JPanel(new WrapLayout(FlowLayout.LEFT, 5, 2));
+        scopePanel.add(new JLabel("Scope:"));
 
         String[] scopeInit = caa.Config.scopeOptions.split("\\|");
         String[] scopeMode = configLoader.getScope().split("\\|");

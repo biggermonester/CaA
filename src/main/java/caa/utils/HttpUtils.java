@@ -108,6 +108,14 @@ public class HttpUtils {
             HttpRequestResponse requestResponse,
             String toolType
     ) {
+        return verifyHttpRequestResponse(requestResponse, toolType, true);
+        }
+
+        public boolean verifyHttpRequestResponse(
+            HttpRequestResponse requestResponse,
+            String toolType,
+            boolean verifyToolScope
+        ) {
         HttpRequest request = requestResponse.request();
         HttpResponse response = requestResponse.response();
         boolean retStatus = false;
@@ -132,7 +140,8 @@ public class HttpUtils {
                 );
             }
 
-            boolean isToolScope = !configLoader.getScope().contains(toolType);
+                boolean isToolScope =
+                    verifyToolScope && !configLoader.getScope().contains(toolType);
 
             boolean isExcludeStatus = false;
             String status = configLoader.getExcludeStatus();

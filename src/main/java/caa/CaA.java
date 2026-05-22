@@ -23,7 +23,7 @@ public class CaA implements BurpExtension {
 
         // 设置扩展名称
         api.extension().setName("CaA - Collector and Analyzer");
-        String version = "3.0";
+        String version = "3.1";
 
         // 加载扩展后输出的项目信息
         Logging logging = api.logging();
@@ -55,10 +55,12 @@ public class CaA implements BurpExtension {
                 .logging()
                 .logToOutput("[Info] CaA database successfully connected.");
 
+            Collector collector = new Collector(api, db, configLoader);
+
             // 注册扫描器（用于收集数据）
             api
                 .scanner()
-                .registerScanCheck(new Collector(api, db, configLoader));
+                .registerScanCheck(collector);
 
             // 先绘制生成器UI便于后续调用
             Generator generator = new Generator(api, configLoader);
@@ -67,7 +69,13 @@ public class CaA implements BurpExtension {
             api
                 .userInterface()
                 .registerContextMenuItemsProvider(
-                    new GeneratorContextMenuProvider(generator)
+                    new GeneratorContextMenuProvider(
+                        api,
+                        db,
+                        configLoader,
+                        generator,
+                        collector
+                    )
                 );
 
             // 注册消息编辑框（用于展示数据）
