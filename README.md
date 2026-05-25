@@ -1,6 +1,6 @@
 <div align="center">
 <img src="images/logo.png" style="width: 20%" />
-<h4><a href="https://github.com/gh0stkey/CaA">Empower ethical hacker for efficient operations.</a></h4>
+<h4><a href="https://github.com/gh0stkey/CaA">Insight into information, exploring with intelligence in a thousand ways.</a></h4>
 <h5>First Author: <a href="https://github.com/gh0stkey">EvilChen</a><br>Second Author: <a href="https://github.com/0chencc">0chencc</a>(Mystery Security Team)<br>Third Author: <a href="https://github.com/shanshanerxi">MingXi</a>(Mystery Security Team)</h5>
 </div>
 
